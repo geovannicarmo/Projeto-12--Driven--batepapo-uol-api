@@ -3,15 +3,32 @@ import cors from 'cors'
 import express from 'express'
 import { MongoClient } from 'mongodb'
 import dayjs from 'dayjs'
+import joi from 'joi'
+import dotenv from "dotenv"
+
+dotenv.config()
+const PORT = process.env.PORTA;
+const SERVERMONGO= process.env.SERVERMONGO
 
 
+const nameSchema = joi.object({
+
+name:joi.string().required()
+});
+
+const messagesSchema = joi.object({
+
+    to:joi.string().required(),
+    text:joi.string().required(),
+    type:joi.string().valid("message", "private_message").required()
+})
 
 
 const app = express()
 app.use(cors())
 app.use(express.json());
 let db;
-const mongoClient = new MongoClient("mongodb://localhost:27017");
+const mongoClient = new MongoClient(SERVERMONGO);
 
 
 
@@ -23,8 +40,13 @@ mongoClient.connect().then(() => {
 
 app.post('/participants',(req, res)=>{
 
+    const validation = nameSchema.validate({name: req.body.name})
+    if (validation.error) {
+        res.status(422).send(validation.error.details[0].message)
+        return
+      }
+
     let aux=0
-    
     db.collection("users").findOne({user: {name: req.body.name}}).then(opa=>{
         aux=0
        
@@ -67,21 +89,37 @@ app.get('/participants',(req, res)=>{
 })
 
 app.post('/messages',(req, res)=>{
+
+    const validation = messagesSchema.validate(req.body, { abortEarly: true });
+
+    if (validation.error) {
+        res.status(422).send(validation.error.details[0].message)
+        return
+      }
+
+
     let body =  req.body
-    res.status(201)
     let from = req.headers.user
     let hour=dayjs().format('HH:mm:ss')
 
-    db.collection("msg").insertOne({to: body.to, text: body.text, type:body.type, from, time:hour}).then(() => {
-		res.sendStatus(201); 
-	});
+    
+     db .collection("users").findOne({user: {name: from}}).then((query)=>{
 
-        db.collection("msg").find().toArray().then(msg => {
-            console.log(msg);
-        });
-        
-       
+      
 
+        if(query===null){
+            res.status(422).send("Usuario não logado")
+            return
+        }
+
+         
+         db.collection("msg").insertOne({to: body.to, text: body.text, type:body.type, from, time:hour}).then(() => {
+             res.sendStatus(201); 
+            });
+            
+        })
+
+    
 	});
 
     app.get('/messages',(req, res)=>{
@@ -106,7 +144,7 @@ app.post('/messages',(req, res)=>{
 
     app.post('/status', (req, res)=>{
         let user = req.headers.user
-        console.log("status: "+user)
+        
 
         db.collection("users").findOne({user: {name: user}}).then(iten=>{
            
@@ -116,7 +154,7 @@ app.post('/messages',(req, res)=>{
                 res.sendStatus(404);
                 return
             }
-            console.log(iten)
+          
 
             db.collection("users").updateOne(
                 { lastStatus: iten.lastStatus },
@@ -131,12 +169,25 @@ app.post('/messages',(req, res)=>{
     
     setInterval(()=>{
 
+        db.collection("users").find({
+            lastStatus: {$lt: Date.now()-10000}
+        }).toArray().then((query)=>{
+           
+            let hour=dayjs().format('HH:mm:ss')
+
+         query.map((date)=>   db.collection("msg").insertOne({to: 'Todos', text: 'saiu da sala...', type:'status', from:date.user.name, time:hour}).then(() => {
+            
+            })
+        )
+            
             db.collection("users").deleteMany({
-                lastStatus: {$lt: Date.now()-10000}
+                    lastStatus: {$lt: Date.now()-10000}
+                })
+
+                
             })
             
-            console.log(Date.now())
     }, 15000)
 
 
-app.listen((5000),()=>(console.log(chalk.green("Server started in port 5000."))))
+app.listen((PORT),()=>(console.log(chalk.green("Server started in port 5000."))))

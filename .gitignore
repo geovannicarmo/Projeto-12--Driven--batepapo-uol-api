@@ -1,3 +1,4 @@
 front-bate-papo-uol-main/
 *.wakatime-project
 node_modules/
+.env
